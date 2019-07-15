@@ -106,6 +106,7 @@ type Config struct {
 
 	MaxIPSetSize int
 
+	IptablesBackend                string
 	IPSetsRefreshInterval          time.Duration
 	RouteRefreshInterval           time.Duration
 	IptablesRefreshInterval        time.Duration
@@ -135,6 +136,10 @@ type Config struct {
 
 	XDPEnabled      bool
 	XDPAllowGeneric bool
+
+	SidecarAccelerationEnabled bool
+
+	LookPathOverride func(file string) (string, error)
 }
 
 // InternalDataplane implements an in-process Felix dataplane driver based on iptables
@@ -218,6 +223,7 @@ type InternalDataplane struct {
 	debugHangC <-chan time.Time
 
 	xdpState          *xdpState
+	sockmapState      *sockmapState
 	endpointsSourceV4 endpointsSource
 	ipsetsSourceV4    ipsetsSource
 	callbacks         *callbacks
@@ -262,6 +268,8 @@ func NewIntDataplaneDriver(config Config) *InternalDataplane {
 		PostWriteInterval:     config.IptablesPostWriteCheckInterval,
 		LockTimeout:           config.IptablesLockTimeout,
 		LockProbeInterval:     config.IptablesLockProbeInterval,
+		BackendMode:           config.IptablesBackend,
+		LookPathOverride:      config.LookPathOverride,
 	}
 
 	// However, the NAT tables need an extra cleanup regex.
@@ -385,6 +393,36 @@ func NewIntDataplaneDriver(config Config) *InternalDataplane {
 			}
 		}
 		// if we can't create an XDP state it means we couldn't get a working
+		// bpffs so there's nothing to clean up
+	}
+
+	if config.SidecarAccelerationEnabled {
+		if err := bpf.SupportsSockmap(); err != nil {
+			log.WithError(err).Warn("Can't enable Sockmap acceleration.")
+		} else {
+			st, err := NewSockmapState()
+			if err != nil {
+				log.WithError(err).Warn("Can't enable Sockmap acceleration.")
+			} else {
+				dp.sockmapState = st
+				dp.sockmapState.PopulateCallbacks(callbacks)
+
+				if err := dp.sockmapState.SetupSockmapAcceleration(); err != nil {
+					dp.sockmapState = nil
+					log.WithError(err).Warn("Failed to set up Sockmap acceleration")
+				} else {
+					log.Info("Sockmap acceleration enabled.")
+				}
+			}
+		}
+	}
+
+	if dp.sockmapState == nil {
+		st, err := NewSockmapState()
+		if err == nil {
+			st.WipeSockmap(bpf.FindInBPFFSOnly)
+		}
+		// if we can't create a sockmap state it means we couldn't get a working
 		// bpffs so there's nothing to clean up
 	}
 
@@ -878,7 +916,7 @@ func (d *InternalDataplane) loopUpdatingDataplane() {
 			d.forceRouteRefresh = true
 			d.dataplaneNeedsSync = true
 		case <-xdpRefreshC:
-			log.Debug("Refreshing routes")
+			log.Debug("Refreshing XDP")
 			d.forceXDPRefresh = true
 			d.dataplaneNeedsSync = true
 		case <-d.reschedC:

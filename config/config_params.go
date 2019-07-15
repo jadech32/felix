@@ -131,6 +131,7 @@ type Config struct {
 	Ipv6Support    bool `config:"bool;true"`
 	IgnoreLooseRPF bool `config:"bool;false"`
 
+	IptablesBackend                    string        `config:"oneof(legacy,nft);legacy"`
 	RouteRefreshInterval               time.Duration `config:"seconds;90"`
 	IptablesRefreshInterval            time.Duration `config:"seconds;90"`
 	IptablesPostWriteCheckIntervalSecs time.Duration `config:"seconds;1"`
@@ -170,6 +171,7 @@ type Config struct {
 	VXLANVNI            int    `config:"int;4096"`
 	VXLANMTU            int    `config:"int;1410;non-zero"`
 	IPv4VXLANTunnelAddr net.IP `config:"ipv4;"`
+	VXLANTunnelMACAddr  string `config:"string;"`
 
 	IpInIpEnabled    bool   `config:"bool;false"`
 	IpInIpMtu        int    `config:"int;1440;non-zero"`
@@ -198,6 +200,7 @@ type Config struct {
 
 	KubeNodePortRanges []numorstring.Port `config:"portrange-list;30000:32767"`
 	NATPortRange       numorstring.Port   `config:"portrange;"`
+	NATOutgoingAddress net.IP             `config:"ipv4;"`
 
 	UsageReportingEnabled          bool          `config:"bool;true"`
 	UsageReportingInitialDelaySecs time.Duration `config:"seconds;300"`
@@ -223,8 +226,9 @@ type Config struct {
 
 	IptablesNATOutgoingInterfaceFilter string `config:"iface-param;"`
 
-	XDPEnabled        bool `config:"bool;true"`
-	GenericXDPEnabled bool `config:"bool;false"`
+	SidecarAccelerationEnabled bool `config:"bool;false"`
+	XDPEnabled                 bool `config:"bool;false"`
+	GenericXDPEnabled          bool `config:"bool;false"`
 }
 
 type ProtoPort struct {
